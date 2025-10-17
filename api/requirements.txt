@@ -1,0 +1,7 @@
+aiohttp
+fastapi
+uvicorn
+google_adk
+python-multipart
+transformers[torch]
+transformers[serving]
