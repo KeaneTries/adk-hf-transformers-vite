@@ -1,5 +1,5 @@
 aiohttp
-fastapi
+fastapi==0.118.2
 uvicorn
 google_adk
 python-multipart

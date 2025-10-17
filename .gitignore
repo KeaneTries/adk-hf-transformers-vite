@@ -17,7 +17,6 @@ dist-ssr
 *.local
 
 # Editor directories and files
-.kiro
 .vscode
 .vscode/*
 !.vscode/extensions.json
