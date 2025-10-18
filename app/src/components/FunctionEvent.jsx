@@ -8,6 +8,8 @@ const FunctionEventContainer = styled.div`
   padding: 0.75rem;
   margin: 0.5rem 0;
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  width: 100%;
+  box-sizing: border-box;
 `;
 
 const FunctionHeader = styled.div`
@@ -50,6 +52,19 @@ const DataContent = styled.pre`
   font-size: 0.8rem;
 `;
 
+const ShowWorkButton = styled.span`
+  font-size: 0.8rem;
+  color: #666;
+  font-weight: 400;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  
+  &:hover {
+    color: #333;
+  }
+`;
+
 const FunctionEvent = ({ type, name, args, response }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   
@@ -57,16 +72,16 @@ const FunctionEvent = ({ type, name, args, response }) => {
   const data = isResponse ? response : args;
   const hasData = data && Object.keys(data).length > 0;
   
+  const getIcon = () => {
+    return isResponse ? '✅' : '⚡';
+  };
+  
   const getStatusText = () => {
     if (isResponse) {
       return hasData ? 'Response received' : 'No response';
     } else {
       return `(${hasData ? Object.keys(data).length : 0} args)`;
     }
-  };
-  
-  const getIcon = () => {
-    return isResponse ? '✅' : '⚡';
   };
   
   const getDataLabel = () => {
@@ -77,7 +92,8 @@ const FunctionEvent = ({ type, name, args, response }) => {
     <FunctionEventContainer $isResponse={isResponse}>
       <FunctionHeader 
         $isResponse={isResponse}
-        onClick={() => setIsExpanded(!isExpanded)}
+        onClick={() => hasData && setIsExpanded(!isExpanded)}
+        style={{ cursor: hasData ? 'pointer' : 'default' }}
       >
         <FunctionIcon>{getIcon()}</FunctionIcon>
         <FunctionName $isResponse={isResponse}>{name}</FunctionName>

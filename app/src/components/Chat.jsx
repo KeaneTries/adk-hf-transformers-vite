@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import styled from 'styled-components';
 import { useSSEChat } from '../hooks/useSSEChat';
-import FunctionEvent from './FunctionEvent';
+import FunctionWorkGroup from './FunctionWorkGroup';
 
 export default function Chat() {
     const [inputValue, setInputValue] = useState('');
@@ -69,25 +69,11 @@ export default function Chat() {
             <MessagesContainer>
                 {messages.map((message) => (
                     <Message key={message.id} $isUser={message.role === 'user'}>
-                        {/* Function Calls */}
-                        {message.functionCalls && message.functionCalls.map((functionCall, index) => (
-                            <FunctionEvent
-                                key={`${message.id}-call-${index}`}
-                                type="call"
-                                name={functionCall.name}
-                                args={functionCall.args}
-                            />
-                        ))}
-                        
-                        {/* Function Responses */}
-                        {message.functionResponses && message.functionResponses.map((functionResponse, index) => (
-                            <FunctionEvent
-                                key={`${message.id}-response-${index}`}
-                                type="response"
-                                name={functionResponse.name}
-                                response={functionResponse.response}
-                            />
-                        ))}
+                        {/* Function Work Group */}
+                        <FunctionWorkGroup
+                            functionCalls={message.functionCalls || []}
+                            functionResponses={message.functionResponses || []}
+                        />
                         
                         {/* Regular Message Content */}
                         {message.content && (
@@ -222,6 +208,8 @@ const Message = styled.div`
   display: flex;
   flex-direction: column;
   align-items: ${props => props.$isUser ? 'flex-end' : 'flex-start'};
+  width: 100%;
+  max-width: 100%;
 `;
 
 const MessageBubble = styled.div`
