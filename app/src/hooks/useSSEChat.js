@@ -1,10 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config';
+import { extractDataFromSSE } from '../utils/sseParser';
 
 export const useSSEChat = () => {
   const [messages, setMessages] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isProcessingFunction, setIsProcessingFunction] = useState(false);
   const [error, setError] = useState(null);
   const [currentAgent, setCurrentAgent] = useState('');
   const [sessionId, setSessionId] = useState(null);
@@ -91,7 +93,8 @@ export const useSSEChat = () => {
       content: '',
       role: 'assistant',
       timestamp: new Date().toISOString(),
-      isStreaming: true
+      isStreaming: false,
+      hasContent: false
     };
     
     setMessages(prev => [...prev, aiMessage]);
@@ -186,17 +189,15 @@ export const useSSEChat = () => {
                   console.log('🎯 Parsing JSON data:', jsonDataToParse.substring(0, 200) + '...');
                   
                   try {
-                    const eventData = JSON.parse(jsonDataToParse);
-                    console.log('✅ Parsed event data:', eventData);
+                    // Use proper SSE parser
+                    const parsedData = extractDataFromSSE(jsonDataToParse);
+                    console.log('✅ Parsed SSE data:', parsedData);
                     
-                    // Process the SSE event data
-                    if (eventData.content?.parts) {
-                      console.log('📄 Processing content parts:', eventData.content.parts);
-                      for (const part of eventData.content.parts) {
-                        if (part.text && !part.thought) {
-                          console.log('📝 Adding text:', part.text);
-                          accumulatedText += part.text;
-                        }
+                    // Process text content
+                    if (parsedData.textParts.length > 0) {
+                      for (const text of parsedData.textParts) {
+                        console.log('📝 Adding text:', text);
+                        accumulatedText += text;
                       }
                       
                       console.log('💬 Accumulated text so far:', accumulatedText);
@@ -204,15 +205,45 @@ export const useSSEChat = () => {
                       // Update the AI message with accumulated text
                       setMessages(prev => prev.map(msg => 
                         msg.id === aiMessageId 
-                          ? { ...msg, content: accumulatedText, isStreaming: true }
+                          ? { ...msg, content: accumulatedText, hasContent: true }
+                          : msg
+                      ));
+                    }
+                    
+                    // Process function calls
+                    if (parsedData.functionCall) {
+                      console.log('⚡ Processing function call:', parsedData.functionCall);
+                      setIsProcessingFunction(true);
+                      setMessages(prev => prev.map(msg => 
+                        msg.id === aiMessageId 
+                          ? { 
+                              ...msg, 
+                              functionCalls: [...(msg.functionCalls || []), parsedData.functionCall],
+                              hasContent: true
+                            }
+                          : msg
+                      ));
+                    }
+                    
+                    // Process function responses
+                    if (parsedData.functionResponse) {
+                      console.log('✅ Processing function response:', parsedData.functionResponse);
+                      setIsProcessingFunction(false);
+                      setMessages(prev => prev.map(msg => 
+                        msg.id === aiMessageId 
+                          ? { 
+                              ...msg, 
+                              functionResponses: [...(msg.functionResponses || []), parsedData.functionResponse],
+                              hasContent: true
+                            }
                           : msg
                       ));
                     }
                     
                     // Update current agent if available
-                    if (eventData.author) {
-                      console.log('🤖 Setting current agent:', eventData.author);
-                      setCurrentAgent(eventData.author);
+                    if (parsedData.agent) {
+                      console.log('🤖 Setting current agent:', parsedData.agent);
+                      setCurrentAgent(parsedData.agent);
                     }
                     
                   } catch (parseError) {
@@ -245,24 +276,29 @@ export const useSSEChat = () => {
             console.log('🎯 Final JSON data:', jsonDataToParse);
             
             try {
-              const eventData = JSON.parse(jsonDataToParse);
-              console.log('✅ Final parsed event data:', eventData);
+              const parsedData = extractDataFromSSE(jsonDataToParse);
+              console.log('✅ Final parsed SSE data:', parsedData);
               
-              if (eventData.content?.parts) {
-                for (const part of eventData.content.parts) {
-                  if (part.text && !part.thought) {
-                    accumulatedText += part.text;
-                  }
+              if (parsedData.textParts.length > 0) {
+                for (const text of parsedData.textParts) {
+                  accumulatedText += text;
                 }
                 
                 console.log('💬 Final accumulated text:', accumulatedText);
-                
-                setMessages(prev => prev.map(msg => 
-                  msg.id === aiMessageId 
-                    ? { ...msg, content: accumulatedText, isStreaming: false }
-                    : msg
-                ));
               }
+              
+              // Final update with all accumulated data
+              setMessages(prev => prev.map(msg => 
+                msg.id === aiMessageId 
+                  ? { 
+                      ...msg, 
+                      content: accumulatedText, 
+                      hasContent: true,
+                      functionCalls: msg.functionCalls || [],
+                      functionResponses: msg.functionResponses || []
+                    }
+                  : msg
+              ));
             } catch (parseError) {
               console.error('❌ Failed to parse final SSE event:', parseError);
               console.error('❌ Final problematic JSON:', jsonDataToParse);
@@ -284,7 +320,7 @@ export const useSSEChat = () => {
       // Mark streaming as complete
       setMessages(prev => prev.map(msg => 
         msg.id === aiMessageId 
-          ? { ...msg, isStreaming: false }
+          ? { ...msg, hasContent: true }
           : msg
       ));
       
@@ -300,6 +336,7 @@ export const useSSEChat = () => {
       }
     } finally {
       setIsLoading(false);
+      setIsProcessingFunction(false);
       setCurrentAgent('');
       abortControllerRef.current = null;
     }
@@ -349,6 +386,7 @@ export const useSSEChat = () => {
   return {
     messages,
     isLoading,
+    isProcessingFunction,
     error,
     currentAgent,
     sendMessage,

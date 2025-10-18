@@ -7,7 +7,7 @@ import os
 sys.path.append(os.path.dirname(__file__))
 from transformers_llm import TransformersLlm
 
-AGENT_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
+AGENT_MODEL = "meta-llama/Llama-3.2-1B-Instruct"
 
 def get_weather(city: str) -> dict:
     """Retrieves the current weather report for a specified city.

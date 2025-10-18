@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import styled from 'styled-components';
 import { useSSEChat } from '../hooks/useSSEChat';
+import FunctionEvent from './FunctionEvent';
 
 export default function Chat() {
     const [inputValue, setInputValue] = useState('');
@@ -9,6 +10,7 @@ export default function Chat() {
     const {
         messages,
         isLoading,
+        isProcessingFunction,
         error,
         currentAgent,
         sendMessage,
@@ -35,7 +37,7 @@ export default function Chat() {
         setInputValue('');
     };
 
-    const handleKeyPress = (e) => {
+    const handleKeyDown = (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             handleSubmit(e);
@@ -67,25 +69,56 @@ export default function Chat() {
             <MessagesContainer>
                 {messages.map((message) => (
                     <Message key={message.id} $isUser={message.role === 'user'}>
-                        <MessageBubble $isUser={message.role === 'user'}>
-                            {message.content}
-                            {message.isStreaming && (
-                                <LoadingDots>
-                                    <span></span>
-                                    <span></span>
-                                    <span></span>
-                                </LoadingDots>
-                            )}
-                        </MessageBubble>
+                        {/* Function Calls */}
+                        {message.functionCalls && message.functionCalls.map((functionCall, index) => (
+                            <FunctionEvent
+                                key={`${message.id}-call-${index}`}
+                                type="call"
+                                name={functionCall.name}
+                                args={functionCall.args}
+                            />
+                        ))}
+                        
+                        {/* Function Responses */}
+                        {message.functionResponses && message.functionResponses.map((functionResponse, index) => (
+                            <FunctionEvent
+                                key={`${message.id}-response-${index}`}
+                                type="response"
+                                name={functionResponse.name}
+                                response={functionResponse.response}
+                            />
+                        ))}
+                        
+                        {/* Regular Message Content */}
+                        {message.content && (
+                            <MessageBubble $isUser={message.role === 'user'}>
+                                {message.content}
+                            </MessageBubble>
+                        )}
+                        
+                        {!isLoading && (
                         <MessageMeta>
                             {new Date(message.timestamp).toLocaleTimeString()}
-                        </MessageMeta>
+                        </MessageMeta>)}
                     </Message>
                 ))}
 
-                {isLoading && messages.length > 0 && !messages[messages.length - 1]?.isStreaming && (
+                {/* Show loading when waiting for initial response */}
+                {isLoading && messages.length > 0 && !messages[messages.length - 1]?.hasContent && (
                     <LoadingIndicator>
-                        <span>AI is thinking</span>
+                        <span>Thinking</span>
+                        <LoadingDots>
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </LoadingDots>
+                    </LoadingIndicator>
+                )}
+
+                {/* Show loading when processing function calls */}
+                {isProcessingFunction && (
+                    <LoadingIndicator>
+                        <span>Processing function call</span>
                         <LoadingDots>
                             <span></span>
                             <span></span>
@@ -114,7 +147,7 @@ export default function Chat() {
                 <TextArea
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
-                    onKeyPress={handleKeyPress}
+                    onKeyDown={handleKeyDown}
                     placeholder={isSessionReady ? "Type your message... (Press Enter to send, Shift+Enter for new line)" : "Initializing session..."}
                     disabled={isLoading || !isSessionReady}
                     rows={1}
