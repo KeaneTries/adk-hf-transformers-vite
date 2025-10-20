@@ -43,17 +43,13 @@ export const useSSEChat = (urlSessionId) => {
       const sessionStore = useSessionStore.getState();
       const sessionExists = sessionStore.getSessionById(urlSessionId);
 
-      if (!sessionExists) {
-        // Session doesn't exist (likely deleted), redirect to main chat page
-        console.log('Session not found in store, redirecting to main chat:', urlSessionId);
-        navigate('/chat', { replace: true });
-        return;
-      }
+      // If session doesn't exist in store, we'll try to load it from server
+      // Only redirect if the server also doesn't have it (handled in loadSessionData)
 
       currentStore.switchSession(urlSessionId);
 
       // Check if this is a newly created session
-      if (isSessionNewlyCreated(urlSessionId)) {
+      if (sessionExists && isSessionNewlyCreated(urlSessionId)) {
         // For newly created sessions, mark as ready and check for pending messages
         console.log('Session is newly created, marking as ready:', urlSessionId);
         currentStore.setSessionReady(true);
@@ -125,7 +121,7 @@ export const useSSEChat = (urlSessionId) => {
           }, 100); // Small delay to ensure everything is ready
         }
       } else {
-        // For existing sessions, load data from server
+        // For existing sessions (or sessions not in store), load data from server
         loadSessionData(urlSessionId);
       }
     } else if (!urlSessionId && sessionId) {
@@ -157,15 +153,53 @@ export const useSSEChat = (urlSessionId) => {
       if (response.events && response.events.length > 0) {
         currentStore.clearMessages();
 
-        // Convert events to messages format
-        const messages = response.events.map(event => ({
-          id: event.id || uuidv4(),
-          content: event.content?.parts?.find(part => part.text)?.text || '',
-          role: event.content?.role || 'assistant',
-          timestamp: new Date(event.timestamp).toISOString(),
-          functionCalls: event.content?.parts?.filter(part => part.functionCall).map(part => part.functionCall) || [],
-          functionResponses: event.content?.parts?.filter(part => part.functionResponse).map(part => part.functionResponse) || [],
-        }));
+        // Convert events to messages format, grouping consecutive events by role
+        const messages = [];
+        let currentMessage = null;
+
+        for (const event of response.events) {
+          const eventRole = event.content?.role || 'assistant';
+          const eventText = event.content?.parts?.find(part => part.text)?.text || '';
+          const eventFunctionCalls = event.content?.parts?.filter(part => part.functionCall).map(part => part.functionCall) || [];
+          const eventFunctionResponses = event.content?.parts?.filter(part => part.functionResponse).map(part => part.functionResponse) || [];
+
+          // Special handling for function responses - they should be merged with the previous assistant message
+          const isFunctionResponse = eventFunctionResponses.length > 0 && !eventText;
+          const shouldMergeWithPrevious = isFunctionResponse && currentMessage && currentMessage.role === 'model';
+
+          // If this is a new role or we don't have a current message, start a new message
+          // Exception: function responses should be merged with the previous assistant message
+          if (!shouldMergeWithPrevious && (!currentMessage || currentMessage.role !== eventRole)) {
+            // Save the previous message if it exists
+            if (currentMessage) {
+              messages.push(currentMessage);
+            }
+
+            // Start a new message
+            currentMessage = {
+              id: event.id || uuidv4(),
+              content: eventText,
+              role: eventRole,
+              timestamp: new Date(event.timestamp).toISOString(),
+              functionCalls: [...eventFunctionCalls],
+              functionResponses: [...eventFunctionResponses],
+            };
+          } else {
+            // Same role or function response, merge into current message
+            if (eventText) {
+              currentMessage.content = currentMessage.content ? currentMessage.content + eventText : eventText;
+            }
+            currentMessage.functionCalls.push(...eventFunctionCalls);
+            currentMessage.functionResponses.push(...eventFunctionResponses);
+            // Update timestamp to the latest
+            currentMessage.timestamp = new Date(event.timestamp).toISOString();
+          }
+        }
+
+        // Don't forget to add the last message
+        if (currentMessage) {
+          messages.push(currentMessage);
+        }
 
         // Update store with loaded messages
         messages.forEach(message => {
@@ -406,6 +440,7 @@ export const useSSEChat = (urlSessionId) => {
     let lineBuffer = '';
     let eventDataBuffer = '';
     let accumulatedText = '';
+    const processedMessageIds = new Set(); // Track processed message IDs to prevent duplicates
 
     try {
       while (true) {
@@ -435,18 +470,62 @@ export const useSSEChat = (urlSessionId) => {
               try {
                 const parsedData = extractDataFromSSE(jsonDataToParse);
 
-                // Process text content
+                // Process text content - handle duplicate complete messages
                 if (parsedData.textParts.length > 0) {
-                  for (const text of parsedData.textParts) {
-                    accumulatedText += text;
-                  }
+                  // Join all text parts from this event
+                  const newText = parsedData.textParts.join('');
+                  
+                  // Only add if we have new text content
+                  if (newText) {
+                    // Improved duplicate detection logic
+                    const isExactDuplicate = newText === accumulatedText;
+                    
+                    // Check if this is a complete message that duplicates our incremental build
+                    // This happens when the backend sends both streaming tokens AND a final complete message
+                    const isCompleteDuplicate = accumulatedText.length > 0 && 
+                                              newText.length > 100 && // Complete messages are typically longer
+                                              (newText === accumulatedText || // Exact match
+                                               newText.includes(accumulatedText.trim()) || // Our accumulated text is contained in the new text
+                                               accumulatedText.includes(newText.trim())); // New text is contained in our accumulated text
+                    
+                    // Check if this is a small incremental token that's already been included
+                    const isSubsetToken = newText.length < 50 && // Small tokens
+                                         accumulatedText.length > 0 && 
+                                         accumulatedText.includes(newText.trim());
+                    
+                    if (isExactDuplicate) {
+                      console.log('🔄 [SSE] Skipping exact duplicate content:', newText.substring(0, 50) + '...');
+                    } else if (isCompleteDuplicate) {
+                      // This is a complete message that duplicates our incremental build - skip it
+                      console.log('🔄 [SSE] Skipping complete message duplicate:', newText.substring(0, 50) + '...');
+                    } else if (isSubsetToken) {
+                      // This token is already part of what we have accumulated
+                      console.log('🔄 [SSE] Skipping subset content already included:', newText.substring(0, 50) + '...');
+                    } else {
+                      // This is new content - add it
+                      if (accumulatedText === '') {
+                        accumulatedText = newText;
+                        console.log('🔄 [SSE] Setting initial content:', newText.substring(0, 50) + '...');
+                      } else {
+                        // For incremental content, just append
+                        if (newText.length < 100) {
+                          accumulatedText += newText;
+                          console.log('🔄 [SSE] Adding incremental content:', newText.substring(0, 50) + '...');
+                        } else {
+                          // For large content, check if it's truly new or a duplicate
+                          console.log('🔄 [SSE] Skipping large content (likely duplicate):', newText.substring(0, 50) + '...');
+                          continue;
+                        }
+                      }
 
-                  // Update the AI message with accumulated text
-                  const currentStore = useChatStore.getState();
-                  currentStore.updateMessage(aiMessageId, {
-                    content: accumulatedText,
-                    hasContent: true
-                  });
+                      // Update the AI message with accumulated text
+                      const currentStore = useChatStore.getState();
+                      currentStore.updateMessage(aiMessageId, {
+                        content: accumulatedText,
+                        hasContent: true
+                      });
+                    }
+                  }
                 }
 
                 // Process function calls

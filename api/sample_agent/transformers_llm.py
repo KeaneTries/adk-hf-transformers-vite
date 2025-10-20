@@ -120,18 +120,21 @@ class TransformersLlm(BaseLlm):
                 )
 
                 if has_function_responses:
-                    logger.debug("Function responses present - not including tools to allow natural language response")
+                    logger.debug(
+                        "Function responses present - not including tools to allow natural language response")
                 else:
                     last_message = messages[-1] if messages else {}
                     content = last_message.get("content", "").lower()
 
                     # Only include tools for queries that seem to need them
                     if any(keyword in content for keyword in ["weather", "time", "temperature", "forecast", "clock"]):
-                        logger.debug(f"Adding {len(tools)} tools to request for function-related query")
+                        logger.debug(
+                            f"Adding {len(tools)} tools to request for function-related query")
                         api_params["tools"] = tools
                         api_params["tool_choice"] = "auto"
                     else:
-                        logger.debug("Not including tools for non-function query to prevent unwanted function calls")
+                        logger.debug(
+                            "Not including tools for non-function query to prevent unwanted function calls")
             else:
                 logger.debug("No tools available for this request")
 
@@ -147,7 +150,8 @@ class TransformersLlm(BaseLlm):
             else:
                 # For non-streaming, use raw HTTP to handle server's buggy streaming response
                 api_params["stream"] = False
-                logger.debug("Using raw HTTP request for async non-streaming to handle potential streaming response")
+                logger.debug(
+                    "Using raw HTTP request for async non-streaming to handle potential streaming response")
                 response = await self._make_raw_http_request_async(api_params)
                 yield response
 
@@ -161,7 +165,7 @@ class TransformersLlm(BaseLlm):
     def _parse_raw_streaming_response(self, response_text: str, has_function_responses: bool = False) -> LlmResponse:
         """Parse raw streaming response text into clean content."""
         content_parts = []
-        
+
         for line in response_text.split('\n'):
             line = line.strip()
             if line.startswith('data: '):
@@ -175,14 +179,15 @@ class TransformersLlm(BaseLlm):
                                 content_parts.append(content)
                 except json.JSONDecodeError:
                     continue
-        
+
         # Join all content parts
         full_content = ''.join(content_parts)
 
         if full_content:
             # Only try to convert to function calls if no function responses are present
             allow_conversion = not has_function_responses
-            function_call_part = self._try_parse_function_call_from_text(full_content, allow_conversion)
+            function_call_part = self._try_parse_function_call_from_text(
+                full_content, allow_conversion)
             if function_call_part:
                 return LlmResponse(
                     content=types.Content(
@@ -213,19 +218,20 @@ class TransformersLlm(BaseLlm):
                     error_code="NO_CHOICES",
                     error_message="No choices in response"
                 )
-            
+
             choice = response_data['choices'][0]
             message = choice.get('message', {})
             content = message.get('content', '')
             tool_calls = message.get('tool_calls', [])
-            
+
             parts = []
-            
+
             # Check if content looks like a function call JSON and convert it
             if content and not tool_calls:
                 # Only try to convert to function calls if no function responses are present
                 allow_conversion = not has_function_responses
-                function_call_part = self._try_parse_function_call_from_text(content, allow_conversion)
+                function_call_part = self._try_parse_function_call_from_text(
+                    content, allow_conversion)
                 if function_call_part:
                     parts.append(function_call_part)
                 else:
@@ -234,14 +240,15 @@ class TransformersLlm(BaseLlm):
             elif content:
                 # Add text content if present and we have tool calls too
                 parts.append(types.Part(text=content))
-                
+
             # Add tool calls if present
             if tool_calls:
                 for tool_call in tool_calls:
                     try:
                         func_name = tool_call['function']['name']
-                        func_args = json.loads(tool_call['function']['arguments']) if tool_call['function']['arguments'] else {}
-                        
+                        func_args = json.loads(
+                            tool_call['function']['arguments']) if tool_call['function']['arguments'] else {}
+
                         part = types.Part.from_function_call(
                             name=func_name,
                             args=func_args
@@ -252,7 +259,7 @@ class TransformersLlm(BaseLlm):
                     except (KeyError, json.JSONDecodeError) as e:
                         logger.error(f"Error processing tool call: {e}")
                         continue
-            
+
             if parts:
                 return LlmResponse(
                     content=types.Content(
@@ -266,17 +273,17 @@ class TransformersLlm(BaseLlm):
                     error_code="NO_CONTENT",
                     error_message="No content in response"
                 )
-                
+
         except Exception as e:
             logger.error(f"Error converting raw response: {e}")
             return LlmResponse(
                 error_code="RAW_CONVERSION_ERROR",
                 error_message=str(e)
             )
-                
+
     def _try_parse_function_call_from_text(self, content: str, allow_conversion: bool = True) -> Optional[types.Part]:
         """Try to parse function call from text content.
-        
+
         Args:
             content: The text content to parse
             allow_conversion: Whether to allow conversion of text to function calls.
@@ -285,48 +292,54 @@ class TransformersLlm(BaseLlm):
         """
         # Don't convert text to function calls if conversion is disabled
         if not allow_conversion:
-            logger.debug("Function call conversion disabled - treating as regular text")
+            logger.debug(
+                "Function call conversion disabled - treating as regular text")
             return None
-            
+
         # Don't convert if the content looks like natural language rather than JSON
         content_stripped = content.strip()
         if not (content_stripped.startswith('{') and content_stripped.endswith('}')):
-            logger.debug("Content doesn't look like JSON - treating as regular text")
+            logger.debug(
+                "Content doesn't look like JSON - treating as regular text")
             return None
-            
+
         try:
             content = content.strip()
-            
+
             # Try to parse as JSON
             if content.startswith('{') and content.endswith('}'):
                 data = json.loads(content)
-                
+
                 # Check if it looks like a function call with "type": "function" format
                 if data.get('type') == 'function' and 'function' in data and 'parameters' in data:
                     func_name = data['function']
-                    func_args = data['parameters'] if isinstance(data['parameters'], dict) else {}
-                    
+                    func_args = data['parameters'] if isinstance(
+                        data['parameters'], dict) else {}
+
                     part = types.Part.from_function_call(
                         name=func_name,
                         args=func_args
                     )
                     if part.function_call:
                         part.function_call.id = f"call_{hash(content) % 10000}"
-                    logger.debug(f"Converted type:function text to proper function call: {func_name}")
+                    logger.debug(
+                        f"Converted type:function text to proper function call: {func_name}")
                     return part
-                
+
                 # Check if it looks like a simple function call with "name" and "parameters"
                 elif 'name' in data and 'parameters' in data:
                     func_name = data['name']
-                    func_args = data['parameters'] if isinstance(data['parameters'], dict) else {}
-                    
+                    func_args = data['parameters'] if isinstance(
+                        data['parameters'], dict) else {}
+
                     part = types.Part.from_function_call(
                         name=func_name,
                         args=func_args
                     )
                     if part.function_call:
                         part.function_call.id = f"call_{hash(content) % 10000}"
-                    logger.debug(f"Converted name/parameters text to proper function call: {func_name}")
+                    logger.debug(
+                        f"Converted name/parameters text to proper function call: {func_name}")
                     return part
 
                 # Check for nested function call format
@@ -340,39 +353,39 @@ class TransformersLlm(BaseLlm):
                                 func_args = json.loads(func_args)
                             except json.JSONDecodeError:
                                 func_args = {}
-                        
+
                         part = types.Part.from_function_call(
                             name=func_name,
                             args=func_args
                         )
                         if part.function_call:
                             part.function_call.id = f"call_{hash(content) % 10000}"
-                        logger.debug(f"Converted nested text function call to proper function call: {func_name}")
+                        logger.debug(
+                            f"Converted nested text function call to proper function call: {func_name}")
                         return part
-                        
+
         except (json.JSONDecodeError, KeyError, TypeError) as e:
             logger.debug(f"Content is not a function call: {e}")
-            
+
         return None
-        
-        
+
     def _looks_like_function_call_in_progress(self, content: str) -> bool:
         """Check if the accumulated content looks like a function call in progress.
-        
+
         This helps prevent showing raw JSON or premature results during streaming.
         """
         content_stripped = content.strip()
-        
+
         # Check if it starts with function call JSON patterns
         if content_stripped.startswith('{"name"') or content_stripped.startswith('{"type"'):
             return True
-            
+
         # Check if it contains function call patterns but isn't complete yet
         if '{"name"' in content_stripped or '{"type"' in content_stripped:
             return True
-            
+
         return False
-        
+
     async def _make_raw_http_request_async(self, api_params: Dict[str, Any]) -> LlmResponse:
         """Make an async raw HTTP request when OpenAI client fails."""
         try:
@@ -381,26 +394,28 @@ class TransformersLlm(BaseLlm):
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {self.api_key or 'random_string'}"
             }
-            
+
             # Ensure stream is False for non-streaming
             api_params["stream"] = False
-            
+
             # Check if there are function responses in the messages
             messages = api_params.get("messages", [])
             has_function_responses = any(
                 msg.get("role") == "tool" for msg in messages
             )
-            logger.debug(f"Async function response detection: has_function_responses={has_function_responses}, message_count={len(messages)}")
-            
+            logger.debug(
+                f"Async function response detection: has_function_responses={has_function_responses}, message_count={len(messages)}")
+
             # Use asyncio to run the synchronous requests call
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
                 None,
-                lambda: requests.post(url, json=api_params, headers=headers, timeout=self.timeout)
+                lambda: requests.post(
+                    url, json=api_params, headers=headers, timeout=self.timeout)
             )
             response.raise_for_status()
             response_text = response.text.strip()
-            
+
             # Check if response is streaming format (starts with "data:")
             if response_text.startswith("data:"):
                 # Parse streaming response manually
@@ -409,18 +424,18 @@ class TransformersLlm(BaseLlm):
                 # Parse as JSON
                 response_data = response.json()
                 return self._convert_raw_response_to_llm_response(response_data, has_function_responses)
-                        
+
         except Exception as e:
             logger.error(f"Async raw HTTP request failed: {e}")
             return LlmResponse(
                 error_code="ASYNC_RAW_HTTP_ERROR",
                 error_message=str(e)
             )
-                
+
     def _convert_contents_to_messages(self, contents: List[types.Content]) -> List[Dict[str, Any]]:
         """Converts ADK Content objects to Transformers message format."""
         messages = []
-        
+
         for content in contents:
             # Handle function responses as tool messages
             if content.parts and any(part.function_response for part in content.parts):
@@ -437,7 +452,7 @@ class TransformersLlm(BaseLlm):
                     "role": self._convert_role(content.role),
                     "content": self._convert_parts_to_content(content.parts or [])
                 }
-                
+
                 # Add tool calls for assistant messages
                 if content.role in ["model", "assistant"] and content.parts:
                     tool_calls = []
@@ -453,11 +468,11 @@ class TransformersLlm(BaseLlm):
                             })
                     if tool_calls:
                         message["tool_calls"] = tool_calls
-                
+
                 messages.append(message)
-            
+
         return messages
-        
+
     def _convert_role(self, role: Optional[str]) -> str:
         """Converts ADK role to Transformers role."""
         if role in ["model", "assistant"]:
@@ -468,11 +483,11 @@ class TransformersLlm(BaseLlm):
             return "system"
         else:
             return "user"  # Default fallback
-            
+
     def _convert_parts_to_content(self, parts: List[types.Part]) -> Any:
         """Converts ADK Parts to Transformers content format."""
         content_parts = []
-        
+
         for part in parts:
             if part.text:
                 content_parts.append({
@@ -483,7 +498,8 @@ class TransformersLlm(BaseLlm):
                 if part.inline_data.mime_type.startswith("image"):
                     # Handle image data
                     import base64
-                    base64_data = base64.b64encode(part.inline_data.data).decode()
+                    base64_data = base64.b64encode(
+                        part.inline_data.data).decode()
                     content_parts.append({
                         "type": "image_url",
                         "image_url": {
@@ -493,7 +509,8 @@ class TransformersLlm(BaseLlm):
                 elif part.inline_data.mime_type.startswith("audio"):
                     # Handle audio data (for models that support it)
                     import base64
-                    base64_data = base64.b64encode(part.inline_data.data).decode()
+                    base64_data = base64.b64encode(
+                        part.inline_data.data).decode()
                     content_parts.append({
                         "type": "input_audio",
                         "input_audio": {
@@ -516,24 +533,24 @@ class TransformersLlm(BaseLlm):
                         "type": "text",
                         "text": f"[File: {part.file_data.file_uri}]"
                     })
-                    
+
         # Return single text if only one text part, otherwise return array
         if len(content_parts) == 1 and content_parts[0]["type"] == "text":
             return content_parts[0]["text"]
-        
+
         return content_parts if content_parts else ""
-    
+
     def _convert_tools(self, llm_request: LlmRequest) -> Optional[List[Dict[str, Any]]]:
         """Converts ADK tools to Transformers tools format."""
         if not llm_request.config.tools:
             return None
-        
+
         tools = []
         for tool_config in llm_request.config.tools:
             # Check if this tool has function declarations
             if not hasattr(tool_config, 'function_declarations') or not tool_config.function_declarations:
                 continue
-                
+
             for func_decl in tool_config.function_declarations:
                 tool = {
                     "type": "function",
@@ -542,81 +559,84 @@ class TransformersLlm(BaseLlm):
                         "description": func_decl.description or "",
                     }
                 }
-                
+
                 # Add parameters if present
                 if hasattr(func_decl, 'parameters') and func_decl.parameters:
                     parameters = {
                         "type": "object",
                         "properties": {},
                     }
-                    
+
                     if hasattr(func_decl.parameters, 'properties') and func_decl.parameters.properties:
                         for prop_name, prop_schema in func_decl.parameters.properties.items():
-                            parameters["properties"][prop_name] = self._convert_schema(prop_schema)
-                    
+                            parameters["properties"][prop_name] = self._convert_schema(
+                                prop_schema)
+
                     if hasattr(func_decl.parameters, 'required') and func_decl.parameters.required:
                         parameters["required"] = func_decl.parameters.required
-                    
+
                     tool["function"]["parameters"] = parameters
-                
+
                 tools.append(tool)
-        
+
         return tools if tools else None
-        
+
     def _convert_schema(self, schema: types.Schema) -> Dict[str, Any]:
         """Converts ADK Schema to Transformers JSON schema format."""
         result = {}
-        
+
         if schema.type:
-            result["type"] = schema.type.value.lower() if hasattr(schema.type, 'value') else str(schema.type).lower()
-        
+            result["type"] = schema.type.value.lower() if hasattr(
+                schema.type, 'value') else str(schema.type).lower()
+
         if schema.description:
             result["description"] = schema.description
-        
+
         if schema.properties:
             result["properties"] = {
-                name: self._convert_schema(prop_schema) 
+                name: self._convert_schema(prop_schema)
                 for name, prop_schema in schema.properties.items()
             }
-        
+
         if schema.items:
             result["items"] = self._convert_schema(schema.items)
-        
+
         if schema.enum:
             result["enum"] = schema.enum
-            
+
         return result
-    
+
     def _add_generation_params(self, api_params: Dict[str, Any], config: types.GenerateContentConfig):
         """Adds generation parameters from config to API params."""
         if config.temperature is not None:
             api_params["temperature"] = config.temperature
-        
+
         if config.max_output_tokens is not None:
             api_params["max_tokens"] = config.max_output_tokens
-        
+
         if config.top_p is not None:
             api_params["top_p"] = config.top_p
-        
+
         if config.stop_sequences:
             api_params["stop"] = config.stop_sequences
-        
+
         if config.presence_penalty is not None:
             api_params["presence_penalty"] = config.presence_penalty
-        
+
         if config.frequency_penalty is not None:
             api_params["frequency_penalty"] = config.frequency_penalty
-            
 
     async def _stream_completion(self, api_params: Dict[str, Any]) -> AsyncGenerator[LlmResponse, None]:
         """Handles streaming completion from Transformers."""
         accumulated_content = ""
         accumulated_tool_calls = {}
-        
+        tokens_yielded = False  # Track if we've yielded any tokens
+        final_response_yielded = False  # Track if we've yielded the final response
+
         try:
             # Create streaming completion
             stream = await self._transformers_client.chat.completions.create(**api_params)
-            
+
             async for chunk in stream:
                 # Handle the case where chunk might be a string or have different structure
                 if isinstance(chunk, str):
@@ -630,22 +650,23 @@ class TransformersLlm(BaseLlm):
                         partial=True
                     )
                     continue
-                
+
                 # Handle standard Transformers chunk format
                 if not hasattr(chunk, 'choices') or not chunk.choices:
                     continue
-                    
+
                 choice = chunk.choices[0]
                 delta = choice.delta
-                
+
                 # Handle text content - yield each token as it comes
                 if hasattr(delta, 'content') and delta.content:
                     token = delta.content
                     accumulated_content += token
-                    
+
                     # Don't yield tokens if the accumulated content looks like a function call
                     # This prevents showing raw JSON or premature results before function execution
                     if not self._looks_like_function_call_in_progress(accumulated_content):
+                        tokens_yielded = True  # Mark that we've yielded tokens
                         yield LlmResponse(
                             content=types.Content(
                                 role="model",
@@ -653,7 +674,7 @@ class TransformersLlm(BaseLlm):
                             ),
                             partial=True
                         )
-                        
+
                 # Handle tool calls (accumulate for final response)
                 if hasattr(delta, 'tool_calls') and delta.tool_calls:
                     for tool_call in delta.tool_calls:
@@ -663,38 +684,44 @@ class TransformersLlm(BaseLlm):
                                 "name": "",
                                 "arguments": ""
                             }
-                        
+
                         if tool_call.function and tool_call.function.name:
                             accumulated_tool_calls[tool_call.index]["name"] += tool_call.function.name
-                        
+
                         if tool_call.function and tool_call.function.arguments:
                             accumulated_tool_calls[tool_call.index]["arguments"] += tool_call.function.arguments
-                
+
                 # Handle completion
                 if hasattr(choice, 'finish_reason') and choice.finish_reason:
                     parts = []
-                    
+
                     # Check if we have accumulated content that looks like a function call
                     if accumulated_content:
-                        function_call_part = self._try_parse_function_call_from_text(accumulated_content, allow_conversion=True)
+                        function_call_part = self._try_parse_function_call_from_text(
+                            accumulated_content, allow_conversion=True)
                         if function_call_part:
                             # This is a function call - yield it as a function call response
                             yield LlmResponse(
-                                content=types.Content(role="model", parts=[function_call_part]),
-                                finish_reason=self._convert_finish_reason(choice.finish_reason)
+                                content=types.Content(role="model", parts=[
+                                                      function_call_part]),
+                                finish_reason=self._convert_finish_reason(
+                                    choice.finish_reason)
                             )
-                        else:
-                            # Regular text content
-                            parts.append(types.Part(text=accumulated_content))
-                            
+                            final_response_yielded = True
+                            # Don't yield regular text content if we yielded a function call
+                            accumulated_content = ""
+                            # Reset tokens_yielded so subsequent natural language responses can be yielded
+                            tokens_yielded = False
+
                     # Handle tool calls from proper tool_calls format
                     for tool_call_data in accumulated_tool_calls.values():
                         if tool_call_data["name"]:
                             try:
-                                args = json.loads(tool_call_data["arguments"]) if tool_call_data["arguments"] else {}
+                                args = json.loads(
+                                    tool_call_data["arguments"]) if tool_call_data["arguments"] else {}
                             except json.JSONDecodeError:
                                 args = {}
-                            
+
                             part = types.Part.from_function_call(
                                 name=tool_call_data["name"],
                                 args=args
@@ -702,17 +729,33 @@ class TransformersLlm(BaseLlm):
                             if part.function_call:
                                 part.function_call.id = tool_call_data["id"]
                             parts.append(part)
-                    
-                    # Yield final response if we have parts (for tool calls or regular text)
+
+                    # Yield tool calls if we have them
                     if parts:
                         yield LlmResponse(
                             content=types.Content(role="model", parts=parts),
-                            finish_reason=self._convert_finish_reason(choice.finish_reason)
+                            finish_reason=self._convert_finish_reason(
+                                choice.finish_reason)
                         )
-                        
+                        final_response_yielded = True
+                    # Don't yield final text response if we've already streamed tokens
+                    # The streaming tokens already provide the content to the frontend
+                    # We only need the final response for session persistence, which is handled by the fallback
+
+            # Always yield final response for session persistence if we have content
+            # The frontend deduplication will handle any display issues
+            if not final_response_yielded and accumulated_content:
+                logger.info(
+                    f"Yielding final response for session persistence: {accumulated_content[:50]}...")
+                yield LlmResponse(
+                    content=types.Content(role="model", parts=[
+                                          types.Part(text=accumulated_content)]),
+                    finish_reason=types.FinishReason.STOP
+                )
+
         except Exception as e:
             logger.error(f"Error in streaming completion: {e}")
-            # If there's accumulated content, yield it as final response
+            # Always yield accumulated content for session persistence
             if accumulated_content:
                 yield LlmResponse(
                     content=types.Content(
@@ -721,7 +764,7 @@ class TransformersLlm(BaseLlm):
                     ),
                     finish_reason=types.FinishReason.STOP
                 )
-                    
+
     def _convert_finish_reason(self, transformers_finish_reason: Optional[str]) -> Optional[types.FinishReason]:
         """Converts Transformers finish reason to ADK finish reason."""
         if transformers_finish_reason == "stop":
