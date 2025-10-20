@@ -62,6 +62,27 @@ export const api = {
       return response.data;
     },
 
+    getSession: async (appName, userId, sessionId) => {
+      const response = await apiClient.get(
+        `/apps/${appName}/users/${userId}/sessions/${sessionId}`
+      );
+      return response.data;
+    },
+
+    listSessions: async (appName, userId) => {
+      const response = await apiClient.get(
+        `/apps/${appName}/users/${userId}/sessions`
+      );
+      return response.data;
+    },
+
+    deleteSession: async (appName, userId, sessionId) => {
+      const response = await apiClient.delete(
+        `/apps/${appName}/users/${userId}/sessions/${sessionId}`
+      );
+      return response.data;
+    },
+
     sendMessage: async (requestBody, options = {}) => {
       // Use fetch for SSE since axios doesn't handle it well
       const url = `${apiClient.defaults.baseURL}/run_sse`;

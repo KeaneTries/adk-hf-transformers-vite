@@ -21,6 +21,8 @@ export const useChatStore = create()(
         currentAgent: '',
         userId: null,
         appName: null,
+        abortController: null,
+        pendingMessage: null,
 
         // Actions
         addMessage: (message) => {
@@ -80,10 +82,48 @@ export const useChatStore = create()(
         setAppName: (appName) =>
           set((state) => ({ ...state, appName })),
 
-        resetSession: () =>
+        setAbortController: (controller) =>
+          set((state) => ({ ...state, abortController: controller })),
+
+        setPendingMessage: (message) =>
+          set((state) => ({ ...state, pendingMessage: message })),
+
+        clearPendingMessage: () =>
+          set((state) => ({ ...state, pendingMessage: null })),
+
+        abortCurrentRequest: () => {
+          const state = get();
+          if (state.abortController) {
+            state.abortController.abort();
+            state.setAbortController(null);
+          }
+        },
+
+        resetSession: () => {
+          const state = get();
+          // Abort any ongoing request first
+          if (state.abortController) {
+            state.abortController.abort();
+          }
+          
+          set((prevState) => ({
+            ...prevState,
+            sessionId: null,
+            isSessionReady: false,
+            currentAgent: '',
+            messages: [],
+            error: null,
+            isLoading: false,
+            isProcessingFunction: false,
+            abortController: null,
+            pendingMessage: null,
+          }));
+        },
+
+        switchSession: (newSessionId) =>
           set((state) => ({
             ...state,
-            sessionId: null,
+            sessionId: newSessionId,
             isSessionReady: false,
             currentAgent: '',
             messages: [],
