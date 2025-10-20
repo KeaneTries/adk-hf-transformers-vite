@@ -474,47 +474,44 @@ export const useSSEChat = (urlSessionId) => {
                 if (parsedData.textParts.length > 0) {
                   // Join all text parts from this event
                   const newText = parsedData.textParts.join('');
-                  
+
                   // Only add if we have new text content
                   if (newText) {
                     // Improved duplicate detection logic
                     const isExactDuplicate = newText === accumulatedText;
-                    
-                    // Check if this is a complete message that duplicates our incremental build
-                    // This happens when the backend sends both streaming tokens AND a final complete message
-                    const isCompleteDuplicate = accumulatedText.length > 0 && 
-                                              newText.length > 100 && // Complete messages are typically longer
-                                              (newText === accumulatedText || // Exact match
-                                               newText.includes(accumulatedText.trim()) || // Our accumulated text is contained in the new text
-                                               accumulatedText.includes(newText.trim())); // New text is contained in our accumulated text
-                    
-                    // Check if this is a small incremental token that's already been included
-                    const isSubsetToken = newText.length < 50 && // Small tokens
-                                         accumulatedText.length > 0 && 
-                                         accumulatedText.includes(newText.trim());
-                    
+
+                    // Check if this is a subset of what we already have (small tokens already included)
+                    const isSubsetToken = newText.length < 50 &&
+                      accumulatedText.length > 0 &&
+                      accumulatedText.includes(newText.trim());
+
                     if (isExactDuplicate) {
                       console.log('🔄 [SSE] Skipping exact duplicate content:', newText.substring(0, 50) + '...');
-                    } else if (isCompleteDuplicate) {
-                      // This is a complete message that duplicates our incremental build - skip it
-                      console.log('🔄 [SSE] Skipping complete message duplicate:', newText.substring(0, 50) + '...');
                     } else if (isSubsetToken) {
                       // This token is already part of what we have accumulated
                       console.log('🔄 [SSE] Skipping subset content already included:', newText.substring(0, 50) + '...');
                     } else {
-                      // This is new content - add it
+                      // This is new content - determine how to handle it
                       if (accumulatedText === '') {
+                        // First content - set it directly
                         accumulatedText = newText;
                         console.log('🔄 [SSE] Setting initial content:', newText.substring(0, 50) + '...');
                       } else {
-                        // For incremental content, just append
-                        if (newText.length < 100) {
+                        // We have existing content - check if this is incremental or complete
+                        if (newText.length > accumulatedText.length && newText.includes(accumulatedText.trim())) {
+                          // This looks like a complete message that includes our accumulated text
+                          // Use the complete message instead of our accumulated version
+                          accumulatedText = newText;
+                          console.log('🔄 [SSE] Replacing with complete content:', newText.substring(0, 50) + '...');
+                        } else if (newText.length < 50) {
+                          // Small incremental token - append it
                           accumulatedText += newText;
                           console.log('🔄 [SSE] Adding incremental content:', newText.substring(0, 50) + '...');
                         } else {
-                          // For large content, check if it's truly new or a duplicate
-                          console.log('🔄 [SSE] Skipping large content (likely duplicate):', newText.substring(0, 50) + '...');
-                          continue;
+                          // Large content that doesn't contain our accumulated text - likely a different complete message
+                          // Replace our accumulated text with this new content
+                          accumulatedText = newText;
+                          console.log('🔄 [SSE] Replacing with new complete content:', newText.substring(0, 50) + '...');
                         }
                       }
 
