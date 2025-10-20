@@ -48,8 +48,9 @@ export default function Chat() {
 
   return (
     <ChatContainer>
-      <MessagesContainer>
-        {!hasMessages && (
+      {!hasMessages ? (
+        // Welcome state with centered input
+        <WelcomeContainer>
           <WelcomeMessage>
             <WelcomeTitle>Start Your Conversation</WelcomeTitle>
             {sessionId && !isSessionReady ? (
@@ -65,69 +66,81 @@ export default function Chat() {
               <WelcomeText>Type a message below to begin chatting with the AI assistant.</WelcomeText>
             )}
           </WelcomeMessage>
-        )}
 
-        {messages.map((message) => (
-          <Message key={message.id} $isUser={message.role === 'user'}>
-            {/* Function Work Group */}
-            <FunctionWorkGroup
-              functionCalls={message.functionCalls || []}
-              functionResponses={message.functionResponses || []}
+          <WelcomeInputWrapper>
+            <InputBox
+              onSendMessage={handleSendMessage}
+              isLoading={isLoading}
+              isSessionReady={sessionId ? isSessionReady : true}
+              onCancel={cancelRequest}
             />
+          </WelcomeInputWrapper>
+        </WelcomeContainer>
+      ) : (
+        // Chat state with messages and bottom input
+        <>
+          <MessagesContainer>
+            {messages.map((message) => (
+              <Message key={message.id} $isUser={message.role === 'user'}>
+                {/* Function Work Group */}
+                <FunctionWorkGroup
+                  functionCalls={message.functionCalls || []}
+                  functionResponses={message.functionResponses || []}
+                />
 
-            {/* Regular Message Content */}
-            {message.content && (
-              <MessageBubble $isUser={message.role === 'user'}>
-                {message.content}
-              </MessageBubble>
+                {/* Regular Message Content */}
+                {message.content && (
+                  <MessageBubble $isUser={message.role === 'user'}>
+                    {message.content}
+                  </MessageBubble>
+                )}
+
+                {!isLoading && (
+                  <MessageMeta>
+                    {new Date(message.timestamp).toLocaleTimeString()}
+                  </MessageMeta>)}
+              </Message>
+            ))}
+
+            {/* Show loading when waiting for initial response */}
+            {isLoading && messages.length > 0 && !messages[messages.length - 1]?.hasContent && (
+              <LoadingIndicator>
+                <span>Thinking</span>
+                <LoadingDots>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </LoadingDots>
+              </LoadingIndicator>
             )}
 
-            {!isLoading && (
-              <MessageMeta>
-                {new Date(message.timestamp).toLocaleTimeString()}
-              </MessageMeta>)}
-          </Message>
-        ))}
+            {/* Show loading when processing function calls */}
+            {isProcessingFunction && (
+              <LoadingIndicator>
+                <span>Processing function call</span>
+                <LoadingDots>
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </LoadingDots>
+              </LoadingIndicator>
+            )}
 
-        {/* Show loading when waiting for initial response */}
-        {isLoading && messages.length > 0 && !messages[messages.length - 1]?.hasContent && (
-          <LoadingIndicator>
-            <span>Thinking</span>
-            <LoadingDots>
-              <span></span>
-              <span></span>
-              <span></span>
-            </LoadingDots>
-          </LoadingIndicator>
-        )}
+            {error && <ErrorMessage>{error}</ErrorMessage>}
 
-        {/* Show loading when processing function calls */}
-        {isProcessingFunction && (
-          <LoadingIndicator>
-            <span>Processing function call</span>
-            <LoadingDots>
-              <span></span>
-              <span></span>
-              <span></span>
-            </LoadingDots>
-          </LoadingIndicator>
-        )}
+            <div ref={messagesEndRef} />
+          </MessagesContainer>
 
-        {error && <ErrorMessage>{error}</ErrorMessage>}
-
-
-
-        <div ref={messagesEndRef} />
-      </MessagesContainer>
-
-      <InputBoxWrapper>
-        <InputBox
-          onSendMessage={handleSendMessage}
-          isLoading={isLoading}
-          isSessionReady={sessionId ? isSessionReady : true}
-          onCancel={cancelRequest}
-        />
-      </InputBoxWrapper>
+          <InputBoxWrapper>
+            <InputBox
+              onSendMessage={handleSendMessage}
+              isLoading={isLoading}
+              isSessionReady={sessionId ? isSessionReady : true}
+              onCancel={cancelRequest}
+            />
+          </InputBoxWrapper>
+        </>
+      )}
     </ChatContainer>
   );
 };
@@ -226,6 +239,16 @@ const ErrorMessage = styled.div`
   border: 1px solid #fecaca;
 `;
 
+const WelcomeContainer = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  width: 100%;
+  gap: 2rem;
+`;
+
 const WelcomeMessage = styled.div`
   display: flex;
   flex-direction: column;
@@ -233,7 +256,12 @@ const WelcomeMessage = styled.div`
   justify-content: center;
   text-align: center;
   padding: 2rem;
-  margin: auto 0;
+`;
+
+const WelcomeInputWrapper = styled.div`
+  width: 100%;
+  max-width: 600px;
+  padding: 0 2rem;
 `;
 
 const WelcomeTitle = styled.h2`

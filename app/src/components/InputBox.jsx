@@ -32,7 +32,7 @@ export default function InputBox({ onSendMessage, isLoading, isSessionReady, pla
         value={inputValue}
         onChange={(e) => setInputValue(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={placeholder || "Type your message... (Press Enter to send, Shift+Enter for new line)"}
+        placeholder={placeholder || "Type your message..."}
         disabled={isLoading || !isSessionReady}
         rows={1}
       />
